@@ -27,7 +27,6 @@ class Service::Triage < Service::Base
 
   # Triage webhook url
   def webhook_url api_key
-  	puts "https://www.triaged.co/crashlytics/#{api_key}"
   	"https://www.triaged.co/crashlytics/#{api_key}"
   end
 
