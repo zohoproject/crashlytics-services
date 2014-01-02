@@ -7,9 +7,9 @@ class Service::Databox < Service::Base
   title 'Databox'
 
   string :push_url, :placeholder => 'https://app.databox.com/push/custom/xyz', :label =>
-    'Databox push URL' \
+    'Databox configuration for Crashlytics is available <A target="_blank" href="https://app.databox.com/apps/Crashlytics/connect">here</A>.' \
     '<br />' \
-    'Databox configuration is available <A target="_blank" href="https://app.databox.com/apps/Crashlytics/connect">here</A>.'
+    'Databox push URL'
   string :push_token, :placeholder => 'Token', :label => 'Databox token for Crashlytics'
 
   page 'Push Connection Settings', [:push_url, :push_token]
