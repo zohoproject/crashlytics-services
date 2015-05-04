@@ -12,7 +12,7 @@ class Service::ZohoProjects < Service::Base
     string :auth_token ,:label => "Auth Token", :placeholder => ""
 
     def receive_issue_impact_change(config, issue)
-        payload = JSON.generate issue
+        payload = JSON.generate({event: "issue_impact_change", payload: issue})
 
         response = send_request_to_projects config, payload
         if response.status != 200
