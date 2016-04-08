@@ -14,7 +14,8 @@ class Service::ZohoProjects < Service::Base
 
     response = send_request_to_projects config, payload
     if response.status != 200
-      display_error("Problem while sending request to Zoho Projects - #{error_response_details(response)}")
+      display_error("There is a problem while sending request to Zoho Projects - #{error_response_details(response)} <br>" +
+                    "Please try reconfiguring. <a href=\"https://www.zoho.com/projects/help/crashlytics-integration.html#error\" target=\"_blank\">Learn More</a>")
     end
 
     log('issue_impact_change successful')
