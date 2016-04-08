@@ -1,57 +1,46 @@
 require 'spec_helper'
+require 'webmock/rspec'
 
-describe Service::WebHook do
-  it 'should have a title' do
-    Service::WebHook.title.should == 'Web Hook'
+describe Service::WebHook, :type => :service do
+
+  it 'has a title' do
+    expect(Service::WebHook.title).to eq('WebHook')
   end
 
+  describe 'schema and display configuration' do
+    subject { Service::WebHook }
+
+    it { is_expected.to include_string_field :url }
+  end
+
+  let(:logger) { double('fake-logger', :log => nil) }
+  let(:config) do
+    { :url => 'https://example.org' }
+  end
+  let(:service) { Service::WebHook.new(config, lambda { |message| logger.log(message) }) }
+
   describe 'receive_verification' do
-    before do
-      @config = { :url => 'https://example.org' }
-      @service = Service::WebHook.new('verification', {})
-      @payload = {}
-    end
-
-    it 'should respond' do
-      @service.respond_to?(:receive_verification)
-    end
-
     it 'should succeed upon successful api response' do
-      test = Faraday.new do |builder|
-        builder.adapter :test do |stub|
-          stub.post('/') { [200, {}, ''] }
-        end
-      end
+      stub_request(:post, 'https://example.org?verification=1').
+        to_return(:status => 200, :body => 'fake_body')
 
-      @service.should_receive(:http_post)
-        .with('https://example.org')
-        .and_return(test.post('/'))
-
-      resp = @service.receive_verification(@config, @payload)
-      resp.should == [true,  'Successfully verified Web Hook settings']
+      service.receive_verification
+      expect(logger).to have_received(:log).with('verification successful')
     end
 
     it 'should fail upon unsuccessful api response' do
-      test = Faraday.new do |builder|
-        builder.adapter :test do |stub|
-          stub.post('/') { [500, {}, ''] }
-        end
-      end
+      stub_request(:post, 'https://example.org?verification=1').
+        to_return(:status => 500, :body => 'fake_body')
 
-      @service.should_receive(:http_post)
-        .with('https://example.org')
-        .and_return(test.post('/'))
-
-      resp = @service.receive_verification(@config, @payload)
-      resp.should == [false, "Oops! Please check your settings again."]
+      expect {
+        service.receive_verification
+      }.to raise_error(Service::DisplayableError, 'WebHook verification failed - HTTP status code: 500')
     end
   end
 
   describe 'receive_issue_impact_change' do
-    before do
-      @config = { :url => 'https://example.org' }
-      @service = Service::WebHook.new('issue_impact_change', {})
-      @payload = {
+    let(:payload) do
+      {
         :title => 'foo title',
         :impact_level => 1,
         :impacted_devices_count => 1,
@@ -63,39 +52,21 @@ describe Service::WebHook do
       }
     end
 
-    it 'should respond to receive_issue_impact_change' do
-      @service.respond_to?(:receive_issue_impact_change)
-    end
-
     it 'should succeed upon successful api response' do
-      test = Faraday.new do |builder|
-        builder.adapter :test do |stub|
-          stub.post('/') { [201, {}, ''] }
-        end
-      end
+      stub_request(:post, 'https://example.org').
+        to_return(:status => 201, :body => 'fake_body')
 
-      @service.should_receive(:http_post)
-        .with('https://example.org')
-        .and_return(test.post('/'))
-
-      resp = @service.receive_issue_impact_change(@config, @payload)
-      resp.should == :no_resource
+      service.receive_issue_impact_change(payload)
+      expect(logger).to have_received(:log).with('issue_impact_change successful')
     end
 
     it 'should fail with extra information upon unsuccessful api response' do
-      test = Faraday.new do |builder|
-        builder.adapter :test do |stub|
-          stub.post('/') { [500, {}, 'fake_body'] }
-        end
-      end
+      stub_request(:post, 'https://example.org').
+        to_return(:status => 500, :body => 'fake_body')
 
-      @service.should_receive(:http_post)
-        .with('https://example.org')
-        .and_return(test.post('/'))
-
-      lambda {
-        @service.receive_issue_impact_change(@config, @payload)
-      }.should raise_error(/WebHook issue create failed: HTTP status code: 500, body: fake_body/)
+      expect {
+        service.receive_issue_impact_change(payload)
+      }.to raise_error(Service::DisplayableError, 'WebHook issue impact change failed - HTTP status code: 500')
     end
   end
 end

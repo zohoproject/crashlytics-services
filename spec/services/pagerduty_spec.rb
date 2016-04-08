@@ -1,20 +1,23 @@
 require 'spec_helper'
 
-describe Service::Pagerduty do
-  it 'should have a title' do
-    Service::Pagerduty.title.should == 'Pagerduty'
+describe Service::Pagerduty, :type => :service do
+  before do
+    @logger = double('fake-logger', :log => nil)
+    @config = { :api_key => 'fake-key' }
+    @service = Service::Pagerduty.new(@config, lambda { |message| @logger.log(message) })
+  end
+
+  it 'has a title' do
+    expect(Service::Pagerduty.title).to eq('Pagerduty')
+  end
+
+  describe 'schema and display configuration' do
+    subject { Service::Pagerduty }
+
+    it { is_expected.to include_password_field :api_key }
   end
 
   describe 'receive_verification' do
-    before do
-      @config = {}
-      @service = Service::Pagerduty.new('verification', {})
-      @payload = {}
-    end
-
-    it 'should respond' do
-      @service.respond_to?(:receive_verification)
-    end
 
     it 'should succeed upon successful api response' do
       test = Faraday.new do |builder|
@@ -23,12 +26,12 @@ describe Service::Pagerduty do
         end
       end
 
-      @service.should_receive(:http_post)
+      expect(@service).to receive(:http_post)
         .with('https://events.pagerduty.com/generic/2010-04-15/create_event.json')
         .and_return(test.post('/generic/2010-04-15/create_event.json'))
 
-      resp = @service.receive_verification(@config, @payload)
-      resp.should == [true, 'Successfully verified Pagerduty settings']
+      @service.receive_verification
+      expect(@logger).to have_received(:log).with('verification successful')
     end
 
     it 'should fail upon unsuccessful api response' do
@@ -38,19 +41,18 @@ describe Service::Pagerduty do
         end
       end
 
-      @service.should_receive(:http_post)
+      expect(@service).to receive(:http_post)
         .with('https://events.pagerduty.com/generic/2010-04-15/create_event.json')
         .and_return(test.post('/generic/2010-04-15/create_event.json'))
 
-      resp = @service.receive_verification(@config, @payload)
-      resp.should == [false, 'Oops! Please check your API key again.']
+      expect {
+        @service.receive_verification
+      }.to raise_error(Service::DisplayableError, 'Pagerduty verification failed - HTTP status code: 500')
     end
   end
 
   describe 'receive_issue_impact_change' do
     before do
-      @config = {}
-      @service = Service::Pagerduty.new('issue_impact_change', {})
       @payload = {
         :title => 'foo title',
         :impact_level => 1,
@@ -63,10 +65,6 @@ describe Service::Pagerduty do
       }
     end
 
-    it 'should respond to receive_issue_impact_change' do
-      @service.respond_to?(:receive_issue_impact_change)
-    end
-
     it 'should succeed upon successful api response' do
       test = Faraday.new do |builder|
         builder.adapter :test do |stub|
@@ -74,12 +72,12 @@ describe Service::Pagerduty do
         end
       end
 
-      @service.should_receive(:http_post)
+      expect(@service).to receive(:http_post)
         .with('https://events.pagerduty.com/generic/2010-04-15/create_event.json')
         .and_return(test.post('/generic/2010-04-15/create_event.json'))
 
-      resp = @service.receive_issue_impact_change(@config, @payload)
-      resp.should == { :pagerduty_incident_key => 'foo' }
+      @service.receive_issue_impact_change(@payload)
+      expect(@logger).to have_received(:log).with('issue_impact_change successful')
     end
 
     it 'should fail upon unsuccessful api response' do
@@ -89,12 +87,13 @@ describe Service::Pagerduty do
         end
       end
 
-      @service.should_receive(:http_post)
+      expect(@service).to receive(:http_post)
         .with('https://events.pagerduty.com/generic/2010-04-15/create_event.json')
         .and_return(test.post('/generic/2010-04-15/create_event.json'))
 
-      resp = @service.receive_issue_impact_change(@config, @payload)
-      resp.should == nil
+      expect {
+        @service.receive_issue_impact_change(@payload)
+      }.to raise_error(Service::DisplayableError, 'Pagerduty issue impact change failed - HTTP status code: 500')
     end
   end
 end

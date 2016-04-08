@@ -1,51 +1,68 @@
-require 'octokit'
-
 class Service::GitHub < Service::Base
   title 'GitHub'
 
-  string :repo, :placeholder => 'org/repository', :label => 'Your GitHub repository.'
-  string :access_token, :placeholder => 'GitHub access token', :label =>
-    'We strongly recommend that you create a new GitHub user for this, one that only has access to the repo you wish to integrate with.' \
-    '<br /><br />' \
+  string :repo, :placeholder => 'org/repository', :label => 'Your GitHub repository:'
+  password :access_token, :placeholder => 'GitHub access token', :label =>
     'You can create an access token ' \
-    '<a target="_blank" href="https://help.github.com/articles/creating-an-access-token-for-command-line-use">here</a>, which can be revoked through GitHub at any time.'
+    '<a target="_blank" href="https://help.github.com/articles/creating-an-access-token-for-command-line-use">here</a>, which can be revoked through GitHub at any time.<br /><br />' \
+    'However, we strongly recommend that you create a new GitHub user for this, one that only has access to the repo with which you wish to integrate.<br /><br />' \
+    'GitHub access token:'
+  string :api_endpoint, :required => false,
+    :label => '(GitHub Enterprise only) API endpoint:',
+    :placeholder => 'https://github.yourcompany.com/api/v3/'
 
-  page 'Repository', [:repo]
-  page 'Access token', [:access_token]
+  STATUS_CODE_CREATED = 201
 
-  def receive_verification(config, _)
-    repo = github_repo(config[:access_token], config[:repo])
-    [true, "Successfully accessed repo #{config[:repo]}."]
-  rescue => e
-    log "Rescued a verification error in GitHub for repo #{config[:repo]}: #{e}"
-    [false, "Could not access repository for #{config[:repo]}."]
+  def initialize(config, logger = Proc.new {})
+    super
+    configure_http
   end
 
-  def receive_issue_impact_change(config, issue)
-    github_issue, status_code = create_github_issue(
-      config[:access_token],
-      config[:repo],
-      issue[:title],
-      format_issue_impact_change_payload(issue)
-    )
-    raise "GitHub issue creation failed: #{status_code} - #{github_issue.message}" unless status_code == 201
-    { :github_issue_number => github_issue.number }
+  def receive_verification
+    response = verify_repo_exists
+
+    if response.success?
+      log('verification successful')
+    else
+      display_error("Could not access repository for #{config[:repo]}.")
+    end
+  end
+
+  def receive_issue_impact_change(issue)
+    response = create_github_issue(issue)
+
+    if response.status == STATUS_CODE_CREATED
+      log 'issue_impact_change successful'
+    else
+      display_error("GitHub issue creation failed - #{error_response_details(response)}")
+    end
   end
 
   private
 
-  # Returns a [Sawyer::Resource, status code] tuple.
-  # The resource will have different attrs depending on success or failure.
-  def create_github_issue(access_token, repo, title, body)
-    client = Octokit::Client.new :access_token => access_token
-    github_issue = client.create_issue(repo, title, body)
-    [github_issue, client.last_response.status]
+  def configure_http
+    http.authorization :token, config[:access_token]
   end
 
-  # Returns GitHub repo, raising an exception if the access_token doesn't work.
-  def github_repo(access_token, repo)
-    client = Octokit::Client.new :access_token => access_token
-    client.repo repo
+  def create_github_issue(issue)
+    repo = config[:repo]
+    issue_title = issue[:title]
+    issue_body = format_issue_impact_change_payload(issue)
+
+    http_post("#{repository_url}/issues") do |request|
+      request.headers.merge!(request_headers)
+      request.body = {
+        :labels => [],
+        :title => issue_title,
+        :body => issue_body
+      }.to_json
+    end
+  end
+
+  def verify_repo_exists
+    http_get(repository_url) do |request|
+      request.headers.merge!(request_headers)
+    end
   end
 
   def format_issue_impact_change_payload(issue)
@@ -57,4 +74,22 @@ class Service::GitHub < Service::Base
     "There's a lot more information about this crash on crashlytics.com:\n" \
     "[#{issue[:url]}](#{issue[:url]})"
   end
+
+  private
+
+  def request_headers
+    {
+      'Content-type' => 'application/json',
+      'Accept' => 'application/vnd.github.v3+json'
+    }
+  end
+
+  def repository_url
+    "#{github_url}/repos/#{config[:repo]}"
+  end
+
+  def github_url
+    config[:api_endpoint] || 'https://api.github.com'
+  end
+
 end

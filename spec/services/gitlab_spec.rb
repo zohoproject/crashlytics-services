@@ -1,6 +1,7 @@
 require 'spec_helper'
+require 'webmock/rspec'
 
-describe Service::GitLab do
+describe Service::GitLab, :type => :service do
   let(:config) do
     {
       :project => 'root/example-project',
@@ -8,35 +9,39 @@ describe Service::GitLab do
       :url => 'https://www.gitlabhq.com'
     }
   end
+  let(:logger) { double('fake-logger', :log => nil) }
+  let(:service) { Service::GitLab.new(config, lambda { |message| logger.log(message) }) }
 
-  it 'should have a title' do
-    Service::GitLab.title.should == 'GitLab'
+  it 'has a title' do
+    expect(Service::GitLab.title).to eq('GitLab')
   end
 
-  it 'should require three pages of information' do
-    Service::GitLab.pages.should == [
-      { :title => 'URL', :attrs => [:url] },
-      { :title => 'Project', :attrs => [:project] },
-      { :title => 'Private Token', :attrs => [:private_token] }
-    ]
+  describe 'schema and display configuration' do
+    subject { Service::GitLab }
+
+    it { is_expected.to include_string_field :url }
+    it { is_expected.to include_string_field :project }
+    it { is_expected.to include_password_field :private_token }
   end
 
   describe :receive_verification do
-    it :success do
-      service = Service::GitLab.new('verification', {})
-      service.should_receive(:http_get).and_return(double(Faraday::Response, :success? => true))
-      success, message = service.receive_verification(config, nil)
-      success.should be true
-      message.should == "Successfully accessed project #{config[:project]}."
+    it 'reports success' do
+      stub_request(:get, 'https://www.gitlabhq.com/api/v3/projects/root%2Fexample-project').
+        with(:headers => { 'Private-Token' => 'foo_access_token' }).
+        to_return(:status => 200, :body => '{"message":"Awesome"}')
+
+      service.receive_verification
+      expect(logger).to have_received(:log).with('verification successful')
     end
 
-    it :failure do
-      service = Service::GitLab.new('verification', {})
-      service.should_receive(:http_get).and_return(double(Faraday::Response, :success? => false))
+    it 'reports failure details on an unsuccessful attempt' do
+      stub_request(:get, 'https://www.gitlabhq.com/api/v3/projects/root%2Fexample-project').
+        with(:headers => { 'Private-Token' => 'foo_access_token' }).
+        to_return(:status => 401, :body => '{"message":"401 Unauthorized"}')
 
-      success, message = service.receive_verification(config, nil)
-      success.should be false
-      message.should == "Could not access project #{config[:project]}."
+      expect {
+        service.receive_verification
+      }.to raise_error(Service::DisplayableError, "Could not access project #{config[:project]} - HTTP status code: 401")
     end
   end
 
@@ -62,23 +67,24 @@ describe Service::GitLab do
     end
 
     it 'should create a new GitLab issue' do
-      service = Service::GitLab.new('issue_impact_change', {})
       gitlab_issue = { 'id' => 42 }
-      service.should_receive(:create_gitlab_issue).with(
+      expect(service).to receive(:create_gitlab_issue).with(
         config[:project],
         config[:private_token],
         'foo_issue_title',
         expected_issue_body
-      ).and_return [gitlab_issue, 201]
+      ).and_return double(:status => 201)
 
-      service.receive_issue_impact_change(config, crashlytics_issue).should == { :gitlab_issue_number => 42 }
+      service.receive_issue_impact_change(crashlytics_issue)
+      expect(logger).to have_received(:log).with('issue_impact_change successful')
     end
 
     it 'should raise if creating a new GitLab issue fails' do
-      service = Service::GitLab.new('issue_impact_change', {})
       failed_gitlab_issue = { 'message' => '"title" not given' }
-      service.should_receive(:create_gitlab_issue) { [failed_gitlab_issue, 400] }
-      expect { service.receive_issue_impact_change config, crashlytics_issue }.to raise_error 'GitLab issue creation failed: 400 - "title" not given'
+      expect(service).to receive(:create_gitlab_issue) { double(:status => 400) }
+      expect {
+        service.receive_issue_impact_change(crashlytics_issue)
+      }.to raise_error(Service::DisplayableError, 'GitLab issue creation failed - HTTP status code: 400')
     end
   end
 end

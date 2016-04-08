@@ -1,23 +1,25 @@
 require 'spec_helper'
 
-describe Service::Sprintly do
-  it 'should have a title' do
-    Service::Sprintly.title.should == 'Sprint.ly'
+describe Service::Sprintly, :type => :service do
+  let(:logger) { double('fake-logger', :log => nil) }
+  let(:config) do
+    { :dashboard_url => 'https://sprint.ly/product/1/'}
+  end
+  let(:service) { Service::Sprintly.new(config, lambda { |message| logger.log(message) }) }
+
+  it 'has a title' do
+    expect(Service::Sprintly.title).to eq('Sprint.ly')
+  end
+
+  describe 'schema and display configuration' do
+    subject { Service::Sprintly }
+
+    it { is_expected.to include_string_field :dashboard_url }
+    it { is_expected.to include_string_field :email }
+    it { is_expected.to include_password_field :api_key}
   end
 
   describe :receive_verification do
-    let(:service) { Service::Sprintly.new('event_name', {}) }
-    let(:config) do
-      {
-        :dashboard_url => 'https://sprint.ly/product/1/'
-      }
-    end
-    let(:payload) { {} }
-
-    it 'should respond' do
-      service.respond_to?(:receive_verification)
-    end
-
     it 'should succeed upon successful api response' do
       test = Faraday.new do |builder|
         builder.adapter :test do |stub|
@@ -25,12 +27,12 @@ describe Service::Sprintly do
         end
       end
 
-      service.should_receive(:http_get)
+      expect(service).to receive(:http_get)
         .with('https://sprint.ly/api/products/1/items.json')
         .and_return(test.get('/api/products/1/items.json'))
 
-      resp = service.receive_verification(config, payload)
-      resp.should == [true, 'Successfully verified Sprint.ly settings!']
+      service.receive_verification
+      expect(logger).to have_received(:log).with('verification successful')
     end
 
     it 'should fail upon unsuccessful api response' do
@@ -40,22 +42,17 @@ describe Service::Sprintly do
         end
       end
 
-      service.should_receive(:http_get)
+      expect(service).to receive(:http_get)
         .with('https://sprint.ly/api/products/1/items.json')
         .and_return(test.get('/api/products/1/items.json'))
 
-      resp = service.receive_verification(config, payload)
-      resp.should == [false, 'Oops! Please check your settings again.']
+      expect {
+        service.receive_verification
+      }.to raise_error(Service::DisplayableError, 'Sprint.ly error - HTTP status code: 500')
     end
   end
 
   describe :receive_issue_impact_change do
-    let(:service) { Service::Sprintly.new('event_name', {}) }
-    let(:config) do
-      {
-        :dashboard_url => 'https://sprint.ly/product/1/'
-      }
-    end
     let(:payload) do
       {
           :title => 'foo title',
@@ -69,10 +66,6 @@ describe Service::Sprintly do
       }
     end
 
-    it 'should respond to receive_issue_impact_change' do
-      service.respond_to?(:receive_issue_impact_change)
-    end
-
     it 'should succeed upon successful api response' do
       test = Faraday.new do |builder|
         builder.adapter :test do |stub|
@@ -81,12 +74,12 @@ describe Service::Sprintly do
         end
       end
 
-      service.should_receive(:http_post)
+      expect(service).to receive(:http_post)
         .with('https://sprint.ly/api/products/1/items.json')
         .and_return(test.post('/api/products/1/items.json'))
 
-      resp = service.receive_issue_impact_change(config, payload)
-      resp.should == { :sprintly_item_number => '42' }
+      service.receive_issue_impact_change(payload)
+      expect(logger).to have_received(:log).with('issue_impact_change successful')
     end
 
     it 'should fail upon unsuccessful api response' do
@@ -97,11 +90,13 @@ describe Service::Sprintly do
         end
       end
 
-      service.should_receive(:http_post)
+      expect(service).to receive(:http_post)
         .with('https://sprint.ly/api/products/1/items.json')
         .and_return(test.post('/api/products/1/items.json'))
 
-      lambda { service.receive_issue_impact_change(config, payload) }.should raise_error
+      expect {
+        service.receive_issue_impact_change(payload)
+      }.to raise_error(Service::DisplayableError, '[Sprint.ly] Adding defect to backlog failed - HTTP status code: 500')
     end
   end
 end

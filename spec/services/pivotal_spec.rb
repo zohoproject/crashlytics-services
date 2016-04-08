@@ -1,16 +1,24 @@
 require 'spec_helper'
 
-describe Service::Pivotal do
-  describe 'receive_verification' do
-    before do
-      @config = { :project_url => 'https://www.pivotaltracker.com/s/projects/foo_project' }
-      @service = Service::Pivotal.new('verification', {})
-      @payload = {}
-    end
+describe Service::Pivotal, :type => :service do
+  before do
+    @logger = double('fake-logger', :log => nil)
+    @config = { :project_url => 'https://www.pivotaltracker.com/s/projects/foo_project' }
+    @service = Service::Pivotal.new(@config, lambda { |message| @logger.log(message) })
+  end
 
-    it 'should respond' do
-      @service.respond_to?(:receive_verification)
-    end
+  it 'has a title' do
+    expect(Service::Pivotal.title).to eq('Pivotal')
+  end
+
+  describe 'schema and display configuration' do
+    subject { Service::Pivotal }
+
+    it { is_expected.to include_string_field :project_url }
+    it { is_expected.to include_password_field :api_key }
+  end
+
+  describe 'receive_verification' do
 
     it 'should succeed upon successful api response' do
       test = Faraday.new do |builder|
@@ -19,12 +27,12 @@ describe Service::Pivotal do
         end
       end
 
-      @service.should_receive(:http_get)
+      expect(@service).to receive(:http_get)
         .with('https://www.pivotaltracker.com/services/v3/projects/foo_project')
         .and_return(test.get('/services/v3/projects/foo_project'))
 
-      resp = @service.receive_verification(@config, @payload)
-      resp.should == [true,  "Successfully verified Pivotal settings"]
+      @service.receive_verification
+      expect(@logger).to have_received(:log).with('verification successful')
     end
 
     it 'should fail upon unsuccessful api response' do
@@ -34,19 +42,18 @@ describe Service::Pivotal do
         end
       end
 
-      @service.should_receive(:http_get)
+      expect(@service).to receive(:http_get)
         .with('https://www.pivotaltracker.com/services/v3/projects/foo_project')
         .and_return(test.get('/services/v3/projects/foo_project'))
 
-      resp = @service.receive_verification(@config, @payload)
-      resp.should == [false, "Oops! Please check your settings again."]
+      expect {
+        @service.receive_verification
+      }.to raise_error(Service::DisplayableError, 'Verification failure - HTTP status code: 500')
     end
   end
 
   describe 'receive_issue_impact_change' do
     before do
-      @config = { :project_url => 'https://www.pivotaltracker.com/s/projects/foo_project' }
-      @service = Service::Pivotal.new('issue_impact_change', {})
       @payload = {
         :title => 'foo title',
         :impact_level => 1,
@@ -59,10 +66,6 @@ describe Service::Pivotal do
       }
     end
 
-    it 'should respond to receive_issue_impact_change' do
-      @service.respond_to?(:receive_issue_impact_change)
-    end
-
     it 'should succeed upon successful api response' do
       test = Faraday.new do |builder|
         builder.adapter :test do |stub|
@@ -71,12 +74,12 @@ describe Service::Pivotal do
         end
       end
 
-      @service.should_receive(:http_post)
+      expect(@service).to receive(:http_post)
         .with('https://www.pivotaltracker.com/services/v3/projects/foo_project/stories')
         .and_return(test.post('/services/v3/projects/foo_project/stories'))
 
-      resp = @service.receive_issue_impact_change(@config, @payload)
-      resp.should == { :pivotal_story_id => 'foo_id' }
+      @service.receive_issue_impact_change(@payload)
+      expect(@logger).to have_received(:log).with('issue_impact_change successful')
     end
 
     it 'should fail upon unsuccessful api response' do
@@ -86,11 +89,13 @@ describe Service::Pivotal do
         end
       end
 
-      @service.should_receive(:http_post)
+      expect(@service).to receive(:http_post)
         .with('https://www.pivotaltracker.com/services/v3/projects/foo_project/stories')
         .and_return(test.post('/services/v3/projects/foo_project/stories'))
 
-      lambda { @service.receive_issue_impact_change(@config, @payload) }.should raise_error
+      expect {
+        @service.receive_issue_impact_change(@payload)
+      }.to raise_error(Service::DisplayableError, 'Pivotal Issue Create Failed - HTTP status code: 500')
     end
   end
 
@@ -100,13 +105,13 @@ describe Service::Pivotal do
     it 'should parse_url with /s/ prefix correctly' do
       project_url = 'https://www.pivotaltracker.com/s/projects/12345'
       parsed_url = service.send :parse_url, project_url
-      parsed_url[:project_id].should eq '12345'
+      expect(parsed_url[:project_id]).to eq('12345')
     end
 
     it 'should parse_url without /s/ prefix correctly' do
       project_url = 'https://www.pivotaltracker.com/projects/12345'
       parsed_url = service.send :parse_url, project_url
-      parsed_url[:project_id].should eq '12345'
+      expect(parsed_url[:project_id]).to eq('12345')
     end
   end
 end

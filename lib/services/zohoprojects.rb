@@ -1,57 +1,54 @@
 class Service::ZohoProjects < Service::Base
-    title "Zoho Projects"
+  title 'Zoho Projects'
 
-    string :project_id , :placeholder => "" ,
-        :label => "Project ID and Auth Token is required " \
-	" for configuration which will be available " \
-	" under 'Dashboard' --> 'Project Customization' " \
-	"--> 'Service Hooks' " \
-	"<br /><br />" \
-            "Project ID"
-    
-    string :auth_token ,:label => "Auth Token", :placeholder => ""
+  string :project_id,
+    :label => "You need a Zoho Projects Premium or Enterprise plan along with the bug add-on to enable this integration. " \
+    "To get your Project ID and Auth Token, head on over to your Zoho Projects Dashboard and look under \"Service Hooks\"" \
+    "<br /><br />" \
+    "Project ID"
 
-    def receive_issue_impact_change(config, issue)
-        payload = JSON.generate({event: "issue_impact_change", payload: issue})
+  password :authtoken, :label => 'Auth Token'
 
-        response = send_request_to_projects config, payload
-        if response.status != 200
-            raise "Problem while sending request to Zoho Projects, Status : #{response.status}, Body: #{response.body}"
-        end
+  def receive_issue_impact_change(issue)
+    payload = JSON.generate(:event => 'issue_impact_change', :payload => issue)
 
-        return { zohoprojects_bug_id: response.body }
+    response = send_request_to_projects config, payload
+    if response.status != 200
+      display_error("Problem while sending request to Zoho Projects - #{error_response_details(response)}")
     end
 
-    def receive_verification(config, issue)
-        payload = JSON.generate({event: "verification"})
+    log('issue_impact_change successful')
+  end
 
-        response = send_request_to_projects config, payload
-        if response.status == 400
-            return [false, "Invalid Auth Token/Project ID"]
-        end
+  def receive_verification
+    payload = JSON.generate(:event => 'verification')
 
-        [ true, "Verification successfully completed" ]
+    response = send_request_to_projects config, payload
+    if response.status == 400
+      display_error('Invalid Auth Token/Project ID')
+    elsif response.success?
+      log('verification successful')
+    else
+      display_error("ZohoProjects verification failed - #{error_response_details(response)}")
+    end
+  end
+
+  private
+
+  def service_hook_url
+    'https://projectsapi.zoho.com/serviceHook'
+  end
+
+  def send_request_to_projects config, payload
+    http.ssl[:verify] = true
+
+    response = http_post(service_hook_url) do |req|
+      req.params[:authtoken] = config[:authtoken]
+      req.params[:pId] = config[:project_id]
+      req.params[:pltype] = 'chook'
+      req.params[:payload] = payload
     end
 
-    private
-    def base_url
-        return "https://projectsapi.zoho.com"
-    end
-
-    def service_hook_url
-        return base_url + "/serviceHook"
-    end
-
-    def send_request_to_projects config, payload
-        http.ssl[:verify] = true
-
-        response = http_post service_hook_url do |req|
-            req.params[:authtoken] = config[:auth_token]
-            req.params[:pId] = config[:project_id]
-            req.params[:pltype] = "chook"
-            req.params[:payload] = payload
-        end
-
-        return response
-    end
+    return response
+  end
 end

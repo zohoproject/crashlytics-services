@@ -1,15 +1,12 @@
 class Service::Pivotal < Service::Base
   string :project_url, :placeholder => "https://www.pivotaltracker.com/projects/yourproject/",
          :label => "URL to your Pivotal project:"
-  string :api_key, :label => 'Paste your API Token (located under "Profile"). ' \
+  password :api_key, :label => 'Paste your API Token (located under "Profile"). ' \
                              'Make sure API Access is on for your project in Project Settings!<br />' \
                              'Tip: Create a Crashlytics user for easier sorting.'
 
-  page "Project", [ :project_url ]
-  page "API Token", [ :api_key ]
-
   # Create an issue on Pivotal
-  def receive_issue_impact_change(config, payload)
+  def receive_issue_impact_change(payload)
     parsed = parse_url config[:project_url]
     url_prefix = parsed[:url_prefix]
     project_id = parsed[:project_id]
@@ -44,13 +41,14 @@ class Service::Pivotal < Service::Base
       req.params[:token] = config[:api_key]
       req.body = post_to_xml(post_body)
     end
-    if resp.status < 200 || resp.status > 299
-      raise "Pivotal Issue Create Failed: #{ resp[:status] }, #{ resp.body }"
+    if resp.success?
+      log('issue_impact_change successful')
+    else
+      display_error "Pivotal Issue Create Failed - #{error_response_details(resp)}"
     end
-    { :pivotal_story_id => ::Nokogiri::XML::Document.parse(resp.body).xpath('/story/id').children().first().content() }
   end
 
-  def receive_verification(config, _)
+  def receive_verification
     parsed = parse_url config[:project_url]
     url_prefix = parsed[:url_prefix]
     project_id = parsed[:project_id]
@@ -60,14 +58,10 @@ class Service::Pivotal < Service::Base
       req.headers['X-TrackerToken'] = config[:api_key]
     end
     if resp.status == 200
-      [true,  "Successfully verified Pivotal settings"]
+      log('verification successful')
     else
-      log "HTTP Error: status code: #{ resp.status }, body: #{ resp.body }"
-      [false, "Oops! Please check your settings again."]
+      display_error("Verification failure - #{error_response_details(resp)}")
     end
-  rescue => e
-    log "Rescued a verification error in pivotal: (url=#{config[:project_url]}) #{e}"
-    [false, "Oops! Is your project url correct?"]
   end
 
   private

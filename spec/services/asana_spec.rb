@@ -1,19 +1,27 @@
-require 'asana'
 require 'spec_helper'
+require 'webmock/rspec'
 
-describe Service::Asana do
-  it 'should have a title' do
-    Service::Asana.title.should == 'Asana'
+describe Service::Asana, :type => :service do
+  it 'has a title' do
+    expect(Service::Asana.title).to eq('Asana')
+  end
+
+  describe 'schema and display configuration' do
+    subject { Service::Asana }
+
+    it { is_expected.to include_password_field :api_key }
+    it { is_expected.to include_string_field :project_id }
   end
 
   context 'with service' do
-    let(:service) { Service::Asana.new('event_name', {}) }
+    let(:logger) { double('fake-logger', :log => nil) }
     let(:config) do
       {
         :api_key => 'key',
         :project_id => 'project_id_foo'
       }
     end
+    let(:service) { Service::Asana.new(config, lambda { |message| logger.log message }) }
     let(:issue) do
       {
         :title => 'foo title',
@@ -32,26 +40,31 @@ describe Service::Asana do
     describe :create_notes do
       it 'should create well formatted notes for asana' do
         notes = service.send :create_notes, issue
-        notes.should include issue[:url]
-        notes.should include issue[:method]
-        notes.should include issue[:crashes_count].to_s
-        notes.should include issue[:impacted_devices_count].to_s
+        expect(notes).to include issue[:url]
+        expect(notes).to include issue[:method]
+        expect(notes).to include issue[:crashes_count].to_s
+        expect(notes).to include issue[:impacted_devices_count].to_s
         line_count = notes.split('/').length
-        line_count.should eq 4
+        expect(line_count).to eq 4
       end
     end
 
     describe :receive_verification do
-      it 'should succeed if API can authenticate and find product' do
-        service.should_receive(:find_project).with(config[:api_key], 'project_id_foo').and_return(double(:id => 'project_id_foo'))
-        response = service.receive_verification(config, nil)
-        response.should == [true, 'Successfully verified Asana settings!']
+      it 'should succeed if API can authenticate and find project' do
+        stub_request(:get, "https://key:@app.asana.com/api/1.0/projects/project_id_foo").
+          to_return(:status => 200, :body => '{}')
+
+        service.receive_verification
+        expect(logger).to have_received(:log).with('verification successful')
       end
 
       it 'should fail if API call raises an exception' do
-        service.should_receive(:find_project).and_raise
-        response = service.receive_verification(config, nil)
-        response.first.should == false
+        stub_request(:get, "https://key:@app.asana.com/api/1.0/projects/project_id_foo").
+          to_return(:status => 403, :body => '')
+
+        expect {
+          service.receive_verification
+        }.to raise_error(Service::DisplayableError, /Could not access project/)
       end
     end
 
@@ -69,21 +82,26 @@ describe Service::Asana do
       let(:workspace) { double(:id => 'workspace_id_foo') }
       let(:task) { double(:id => 'new_task_id') }
 
-      it 'should create a new Asana task' do
-        service.should_receive(:find_project).with(config[:api_key], project_id).and_return project
-        project.should_receive(:workspace).and_return workspace
-        workspace.should_receive(:create_task).with(expected_task_options).and_return task
+      before do
+        stub_request(:get, "https://key:@app.asana.com/api/1.0/projects/project_id_foo").
+          and_return(:status => 200, :body => '{"data":{"workspace":{"id":1}}}')
+      end
 
-        response = service.receive_issue_impact_change config, issue
-        response.should == { :asana_task_id => task.id }
+      it 'should create a new Asana task' do
+        stub_request(:post, "https://key:@app.asana.com/api/1.0/tasks").
+          and_return(:status => 200, :body => '')
+
+        service.receive_issue_impact_change issue
+        expect(logger).to have_received(:log).with('issue_impact_change successful')
       end
 
       it 'should raise if creating a new Asana task fails' do
-        service.should_receive(:find_project).with(config[:api_key], project_id).and_return project
-        project.should_receive(:workspace).and_return workspace
-        workspace.should_receive(:create_task).with(expected_task_options).and_raise
+        stub_request(:post, "https://key:@app.asana.com/api/1.0/tasks").
+          and_return(:status => 403, :body => '')
 
-        expect { service.receive_issue_impact_change config, issue }.to raise_error
+        expect {
+          service.receive_issue_impact_change issue
+        }.to raise_error(Service::DisplayableError, /Asana task creation failed/)
       end
     end
   end

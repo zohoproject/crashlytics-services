@@ -7,11 +7,11 @@ module Service
     # Example:
     #
     #   class FooService < Service
-    #     string :token, :label => "API Token"
+    #     string :username, :label => "Username"
     #   end
     #
     #   FooService.schema
-    #   # => [[:string, :token, { :label => "API Token" }]]
+    #   # => [[:string, :username, { :label => "Username" }]]
     #
     # Returns an Array of [ Symbol attribute type, Symbol attribute name, { options hash } ] tuples.
     def schema
@@ -24,16 +24,15 @@ module Service
     # Example:
     #
     #   class FooService < Service
-    #     string :token, :label => "API Token", :placeholder => "Your API token",
-    #                    :help => "You can find your token in..."
+    #     string :username, :label => "Username", :placeholder => "Your username",
     #   end
     #
     #   FooService.schema
-    #   # => [[:string, :token, { :label => "...", ... }]]
+    #   # => [[:string, :username, { :label => "...", ... }]]
     #
     # identifier - attribute identifier
     # options    - a hash of options for the attribute, including :label,
-    #              :placeholder, and :help (:help is a longer help text string)
+    #              :placeholder, and :required
     #
     # Returns nothing.
     def string(identifier, options={})
@@ -46,15 +45,15 @@ module Service
     # Example:
     #
     #   class FooService < Service
-    #     password :pass, :label => "Password", :help => "..."
+    #     password :pass, :label => "Password"
     #   end
     #
     #   FooService.schema
-    #   # => [[:password, :pass, { :label => "Password", :help => "..." } ]]
+    #   # => [[:password, :pass, { :label => "Password", ... } ]]
     #
     # identifier - attribute identifier
-    # options    - a hash of options for the attribute, including :label,
-    #              and :help (:help is a longer help text string)
+    # options    - a hash of options for the attribute, including :label, :placeholder
+    #              and :required
     #
     # Returns nothing.
     def password(identifier, options={})
@@ -70,15 +69,15 @@ module Service
     # Example:
     #
     #   class FooService < Service
-    #     checkbox :mark_as_read, :label => "Mark as Read", :help => "..."
+    #     checkbox :mark_as_read, :label => "Mark as Read", :placeholder => "..."
     #   end
     #
     #   FooService.schema
-    #   # => [[:checkbox, :mark_as_read, { :label => "Mark as Read", :help => "..." } ]]
+    #   # => [[:checkbox, :mark_as_read, { :label => "Mark as Read", :placeholder => "..." } ]]
     #
     # identifier - attribute identifier
     # options    - a hash of options for the attribute, including :label,
-    #              :placeholder, and :help (:help is a longer help text string)
+    #              :placeholder, and :required
     #
     # Returns nothing.
     def checkbox(identifier, options={})
@@ -89,7 +88,7 @@ module Service
     #
     # type - A Symbol specifying the type: :string, :password, :checkbox.
     # identifier - Symbol for attribute name.
-    # options - options hash: { :label => "", :placeholder => "", :help => "" }
+    # options - options hash: { :label => "", :placeholder => "", :required => false }
     #
     # Returns nothing.
     def add_to_schema(type, identifier, options)

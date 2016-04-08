@@ -23,9 +23,8 @@ namespace :services do
       services << {
         :identifier => identifier,
         :name   => svc.title,
-        :events => svc.handles,
-        :schema => svc.schema,
-        :pages  => svc.pages }
+        :events => svc.events_handled,
+        :schema => svc.schema }
     end
 
     services.sort! { |x, y| x[:identifier] <=> y[:identifier] }
@@ -34,12 +33,5 @@ namespace :services do
     File.open(file, 'w') { |io| io << output }
 
     puts output
-  end
-
-  desc 'Copy service_hooks.yml to other projects'
-  task :copy do
-    file = ENV['FILE'] || File.join(File.dirname(__FILE__), 'service_hooks.yml')
-    FileUtils.cp file, '/srv/crashlytics/config/www/service_hooks.yml'
-    FileUtils.cp file, '/srv/crashlytics/config/daemon/service_hooks.yml'
   end
 end

@@ -1,64 +1,67 @@
 require 'spec_helper'
 
-describe Service::Bitbucket do
-
-  before do
-    @config = { 
-      :username => 'user_name', 
-      :repo => 'project_name', 
-      :repo_owner => 'repo_owner' 
+describe Service::Bitbucket, :type => :service do
+  let(:config) do
+    {
+      :username => 'user_name',
+      :repo => 'project_name',
+      :repo_owner => 'repo_owner'
     }
-    @invalid_repo_owners = [nil, " \t\n",  ""]
   end
 
-  it 'should have a title' do
-    Service::Bitbucket.title.should == 'Bitbucket'
+  let(:invalid_repo_owners) { [nil, " \t\n",  ""] }
+  let(:logger) { double('fake-logger', :log => nil) }
+  let(:service) { Service::Bitbucket.new(config, lambda { |message| logger.log message }) }
+
+  it 'has a title' do
+    expect(Service::Bitbucket.title).to eq('Bitbucket')
+  end
+
+  describe 'schema and display configuration' do
+    subject { Service::Bitbucket }
+
+    it { is_expected.to include_string_field :username }
+    it { is_expected.to include_password_field :password }
+    it { is_expected.to include_string_field :repo_owner }
+    it { is_expected.to include_string_field :repo }
   end
 
   describe 'receive_verification' do
-    before do
-      @service = Service::Bitbucket.new('verification', {})
-      @payload = {}
-      @good_request_body = [200, {}, '']
-      @good_response = [true, 'Successfully verified Bitbucket settings']
-    end
-
-    it 'should respond' do
-      @service.respond_to?(:receive_verification)
-    end
+    let(:good_request_body) { [200, {}, ''] }
 
     it 'should use the username field in the repo url when the repo owner is missing' do
-      @invalid_repo_owners.each do |empty_value|
+      invalid_repo_owners.each do |empty_value|
         test = Faraday.new do |builder|
           builder.adapter :test do |stub|
-            stub.get('api/1.0/repositories/user_name/project_name/issues') { @good_request_body }
+            stub.get('api/1.0/repositories/user_name/project_name/issues') { good_request_body }
           end
         end
 
-        @service.should_receive(:http_get)
+        expect(service).to receive(:http_get)
           .with('https://bitbucket.org/api/1.0/repositories/user_name/project_name/issues')
           .and_return(test.get('/api/1.0/repositories/user_name/project_name/issues'))
 
-        @config[:repo_owner] = empty_value
+        config[:repo_owner] = empty_value
 
-        resp = @service.receive_verification(@config, @payload)
-        resp.should == @good_response
+        service.receive_verification
       end
+
+      expect(logger).to have_received(:log).with('verification successful').exactly(3).times
     end
 
     it 'should succeed upon successful api response' do
       test = Faraday.new do |builder|
         builder.adapter :test do |stub|
-          stub.get('api/1.0/repositories/repo_owner/project_name/issues') { @good_request_body }
+          stub.get('api/1.0/repositories/repo_owner/project_name/issues') { good_request_body }
         end
       end
 
-      @service.should_receive(:http_get)
+      expect(service).to receive(:http_get)
         .with('https://bitbucket.org/api/1.0/repositories/repo_owner/project_name/issues')
         .and_return(test.get('/api/1.0/repositories/repo_owner/project_name/issues'))
 
-      resp = @service.receive_verification(@config, @payload)
-      resp.should == @good_response
+      service.receive_verification
+      expect(logger).to have_received(:log).with('verification successful')
     end
 
     it 'should fail upon unsuccessful api response' do
@@ -68,19 +71,19 @@ describe Service::Bitbucket do
         end
       end
 
-      @service.should_receive(:http_get)
+      expect(service).to receive(:http_get)
         .with('https://bitbucket.org/api/1.0/repositories/repo_owner/project_name/issues')
         .and_return(test.get('/api/1.0/repositories/repo_owner/project_name/issues'))
 
-      resp = @service.receive_verification(@config, @payload)
-      resp.should == [false, 'Oops! Please check your settings again.']
+      expect {
+        service.receive_verification
+      }.to raise_error(Service::DisplayableError, 'Oops! Is your repository url correct?')
     end
   end
 
   describe 'receive_issue_impact_change' do
-    before do
-      @service = Service::Bitbucket.new('issue_impact_change', {})
-      @payload = {
+    let(:payload) do
+     {
         :title => 'foo title',
         :impact_level => 1,
         :impacted_devices_count => 1,
@@ -90,46 +93,42 @@ describe Service::Bitbucket do
           :bundle_identifier => 'foo.bar.baz'
         }
       }
-      @good_request_body = [200, {}, "{\"local_id\":12345}"]
-      @good_response = { :bitbucket_issue_id => 12345 }
     end
-
-    it 'should respond to receive_issue_impact_change' do
-      @service.respond_to?(:receive_issue_impact_change)
-    end
+    let(:good_request_body) { [200, {}, "{\"local_id\":12345}"] }
 
     it 'should use the username field in the repo url when the repo owner is missing' do
-      @invalid_repo_owners.each do |empty_value|
+      invalid_repo_owners.each do |empty_value|
         test = Faraday.new do |builder|
           builder.adapter :test do |stub|
-            stub.post('api/1.0/repositories/user_name/project_name/issues') { @good_request_body }
+            stub.post('api/1.0/repositories/user_name/project_name/issues') { good_request_body }
           end
         end
 
-        @service.should_receive(:http_post)
+        expect(service).to receive(:http_post)
           .with('https://bitbucket.org/api/1.0/repositories/user_name/project_name/issues')
           .and_return(test.post('/api/1.0/repositories/user_name/project_name/issues'))
 
-        @config[:repo_owner] = empty_value
+        config[:repo_owner] = empty_value
 
-        resp = @service.receive_issue_impact_change(@config, @payload)
-        resp.should == @good_response
+        service.receive_issue_impact_change(payload)
       end
+
+      expect(logger).to have_received(:log).with('issue_impact_change successful').exactly(3).times
     end
 
     it 'should succeed upon successful api response' do
       test = Faraday.new do |builder|
         builder.adapter :test do |stub|
-          stub.post('/api/1.0/repositories/repo_owner/project_name/issues') { @good_request_body }
+          stub.post('/api/1.0/repositories/repo_owner/project_name/issues') { good_request_body }
         end
       end
 
-      @service.should_receive(:http_post)
+      expect(service).to receive(:http_post)
         .with('https://bitbucket.org/api/1.0/repositories/repo_owner/project_name/issues')
         .and_return(test.post('/api/1.0/repositories/repo_owner/project_name/issues'))
 
-      resp = @service.receive_issue_impact_change(@config, @payload)
-      resp.should == @good_response
+      service.receive_issue_impact_change(payload)
+      expect(logger).to have_received(:log).with('issue_impact_change successful')
     end
 
     it 'should fail upon unsuccessful api response' do
@@ -139,13 +138,13 @@ describe Service::Bitbucket do
         end
       end
 
-      @service.should_receive(:http_post)
+      expect(service).to receive(:http_post)
         .with('https://bitbucket.org/api/1.0/repositories/repo_owner/project_name/issues')
         .and_return(test.post('/api/1.0/repositories/repo_owner/project_name/issues'))
 
-      lambda { 
-        @service.receive_issue_impact_change(@config, @payload) 
-      }.should raise_error(/Bitbucket issue creation failed: 500, body: fakebody/)
+      expect {
+        service.receive_issue_impact_change(payload)
+      }.to raise_error(Service::DisplayableError, 'Bitbucket issue creation failed - HTTP status code: 500')
     end
   end
 end

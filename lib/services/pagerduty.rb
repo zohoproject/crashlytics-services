@@ -1,27 +1,25 @@
 class Service::Pagerduty < Service::Base
   title 'Pagerduty'
 
-  string :api_key, :label => 'Create a new Pagerduty service using the Generic API, then paste the API key here.',
+  password :api_key, :label => 'Create a new Pagerduty service using the Generic API, then paste the API key here.',
     :placeholder => 'Pagerduty API key'
-  page "API Key", [:api_key]
 
   # Create an issue on Pagerduty
-  def receive_issue_impact_change(config, payload)
+  def receive_issue_impact_change(payload)
     resp = post_event('issue_impact_change', 'issue', payload)
     if resp.success?
-      { :pagerduty_incident_key => JSON.parse(resp.body)['incident_key'] }
+      log('issue_impact_change successful')
     else
-      log "Pagerduty issue impact change failed: #{resp[:status]}, payload: #{payload}"
+      display_error("Pagerduty issue impact change failed - #{error_response_details(resp)}")
     end
   end
 
-  def receive_verification(config, _)
+  def receive_verification
     resp = post_event('verification', 'none', nil)
     if resp.success?
-      [true,  'Successfully verified Pagerduty settings']
+      log('verification successful')
     else
-      log "Receive verification failed, most likely due to a bad API key: #{config[:api_key]}, API response: #{resp[:status]}"
-      [false, 'Oops! Please check your API key again.']
+      display_error("Pagerduty verification failed - #{error_response_details(resp)}")
     end
   end
 
@@ -35,8 +33,8 @@ class Service::Pagerduty < Service::Base
       issue_description = '[Crashlytics] Pagerduty settings verified!'
     elsif event == 'issue_impact_change'
       issue_description = "[Crashlytics] Impact level #{payload[:impact_level]} issue in #{payload[:app][:name]} (#{payload[:app][:bundle_identifier]})\r\n#{payload[:url]}"
-      issue_details = { 
-        'impacted devices' => payload[:impacted_devices_count], 
+      issue_details = {
+        'impacted devices' => payload[:impacted_devices_count],
         'crashes' => payload[:crashes_count],
       }
     end
